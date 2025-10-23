@@ -1,0 +1,97 @@
+name: 'gVisor Sandboxed Step'
+description: 'Run commands in a gVisor sandbox'
+author: 'geomys'
+branding:
+  icon: 'shield'
+  color: 'green'
+
+inputs:
+  run:
+    description: 'Commands to run in the sandbox'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run in sandbox
+      shell: bash
+      run: |
+        set -euo pipefail  # Exit on any error, undefined variable, or pipe failure
+
+        # Create a working directory for the sandbox
+        SANDBOX_DIR=$(mktemp -d /tmp/gvisor-sandbox-XXXXXX)
+
+        # Extract the included Ubuntu 24.04 rootfs
+        echo "Extracting Ubuntu 24.04 rootfs..."
+        mkdir -p "$SANDBOX_DIR/rootfs"
+        tar -xzf "${{ github.action_path }}/ubuntu-24.04-rootfs.tar.gz" -C "$SANDBOX_DIR/rootfs"
+
+        # Setup basic requirements for the container
+        echo "Setting up container environment..."
+
+        # Copy host's DNS configuration for network access
+        cp /etc/resolv.conf "$SANDBOX_DIR/rootfs/etc/resolv.conf"
+
+        # Create parent directories for workspace mount point
+        WORKSPACE_DIR="${{ github.workspace }}"
+        WORKSPACE_PARENT=$(dirname "$WORKSPACE_DIR")
+        mkdir -p "$SANDBOX_DIR/rootfs$WORKSPACE_PARENT"
+
+        # Create user in rootfs to match host user
+        USER_ID=$(id -u)
+        GROUP_ID=$(id -g)
+        USER_NAME="${USER:-runner}"
+        # HOME is always /home/username in our sandbox
+        USER_HOME="/home/$USER_NAME"
+
+        # Create home directory in rootfs
+        mkdir -p "$SANDBOX_DIR/rootfs$USER_HOME"
+
+        # Add user and group to rootfs
+        echo "$USER_NAME:x:$USER_ID:$GROUP_ID:$USER_NAME:$USER_HOME:/bin/bash" >> "$SANDBOX_DIR/rootfs/etc/passwd"
+        echo "$USER_NAME:x:$GROUP_ID:" >> "$SANDBOX_DIR/rootfs/etc/group"
+
+        # Configure passwordless sudo for the user (if sudo exists in rootfs)
+        if [ -d "$SANDBOX_DIR/rootfs/etc/sudoers.d" ]; then
+          echo "$USER_NAME ALL=(ALL) NOPASSWD: ALL" > "$SANDBOX_DIR/rootfs/etc/sudoers.d/$USER_NAME"
+          chmod 0440 "$SANDBOX_DIR/rootfs/etc/sudoers.d/$USER_NAME"
+        fi
+
+        # Create the user script inside the rootfs
+        cat > "$SANDBOX_DIR/rootfs/entrypoint.sh" << 'SANDBOXED_SCRIPT_EOF'
+        #!/bin/bash
+        set -euo pipefail  # Exit on any error, undefined variable, or pipe failure
+        cd "${{ github.workspace }}"
+        ${{ inputs.run }}
+        SANDBOXED_SCRIPT_EOF
+
+        chmod +x "$SANDBOX_DIR/rootfs/entrypoint.sh"
+
+        # Generate OCI config using the pre-built binary
+        "${{ github.action_path }}/generate-config" > "$SANDBOX_DIR/config.json"
+
+        # Run the container with runsc
+        CONTAINER_ID="sandbox-$$-$(date +%s)"
+
+        echo "Starting sandbox container..."
+        cd "$SANDBOX_DIR"
+        # Using overlay2 for all mounts (including workspace) and exclusive file access for mounts (assumes no external changes)
+        # Note: Running runsc with sudo but container processes still run as runner user (not root)
+        # Add debug logging if RUNNER_DEBUG is set
+        RUNSC_FLAGS="--network=host --overlay2=all:self --file-access-mounts=exclusive"
+        if [ "${RUNNER_DEBUG:-0}" = "1" ]; then
+          RUNSC_FLAGS="--debug --debug-log=/tmp/runsc-debug.log $RUNSC_FLAGS"
+        fi
+        # Run the sandbox and capture exit code
+        EXIT_CODE=0
+        sudo "${{ github.action_path }}/runsc" $RUNSC_FLAGS run "$CONTAINER_ID" || EXIT_CODE=$?
+
+        # Clean up (always run, even if sandbox failed)
+        cd /
+        sudo rm -rf "$SANDBOX_DIR"
+
+        # Exit with the same code as the sandbox
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo "::error::Sandbox command failed with exit code $EXIT_CODE"
+          exit $EXIT_CODE
+        fi

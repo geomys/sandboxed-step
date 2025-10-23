@@ -1,0 +1,248 @@
+name: Test Sandboxed Step
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run normal command (not sandboxed)
+        run: |
+          echo "This is not sandboxed"
+          echo "Current user: $(whoami)"
+          echo "User ID: $(id -u), Group ID: $(id -g)"
+          echo "Home directory: $HOME"
+          echo "Hostname: $(hostname)"
+          echo "HOSTNAME_FOR_TEST=$(hostname)" >> $GITHUB_ENV
+          echo "Can access network: $(curl -s -o /dev/null -w '%{http_code}' https://github.com || echo 'failed')"
+
+      - name: Run sandboxed command
+        uses: ./
+        with:
+          run: |
+            echo "This is sandboxed"
+            echo "Current user: $(whoami)"
+            echo "User ID: $(id -u), Group ID: $(id -g)"
+            echo "Home directory: $HOME"
+            echo "Hostname in sandbox: $(hostname)"
+            echo "Expected hostname: $HOSTNAME_FOR_TEST"
+            if [ "$(hostname)" = "$HOSTNAME_FOR_TEST" ]; then
+              echo "✓ Hostname matches host system"
+            else
+              echo "✗ Hostname mismatch! Sandbox: $(hostname), Host: $HOSTNAME_FOR_TEST"
+            fi
+            # Test sudo access (if available)
+            if command -v sudo >/dev/null 2>&1; then
+              echo "Testing sudo access:"
+              sudo echo "✓ Passwordless sudo works!"
+            else
+              echo "Sudo not available in minimal rootfs"
+            fi
+            echo "OS Info:"
+            cat /etc/os-release | grep -E "^(NAME|VERSION)" | head -2
+
+      - name: Test network connectivity
+        uses: ./
+        with:
+          run: |
+            echo "=== Testing network connectivity ==="
+            echo "Using apt-get update to verify network access..."
+            apt-get update && echo "✓ Network connectivity verified - apt-get update successful"
+
+      - name: Test file operations in sandbox
+        uses: ./
+        with:
+          run: |
+            echo "Testing file operations in sandbox"
+            echo "Creating a test file in /tmp"
+            echo "Hello from sandbox" > /tmp/test.txt
+            cat /tmp/test.txt
+            rm /tmp/test.txt
+            echo "File operations completed"
+
+      - name: Test workspace access in sandbox
+        uses: ./
+        with:
+          run: |
+            echo "Testing workspace access"
+            echo "Current directory: $(pwd)"
+            echo "GitHub workspace: $GITHUB_WORKSPACE"
+            echo "Verifying we are in the GitHub workspace:"
+            if [ "$(pwd)" = "$GITHUB_WORKSPACE" ]; then
+              echo "✓ Working directory matches GitHub workspace"
+            else
+              echo "✗ Working directory mismatch!"
+              exit 1
+            fi
+            echo ""
+            echo "Workspace contents:"
+            ls -la
+            echo ""
+            echo "Can read existing files (action.yml first 5 lines):"
+            head -5 action.yml
+            echo ""
+            echo "Creating a file in workspace from sandbox (should go to overlay)"
+            echo "Created by sandbox at $(date)" > sandbox-test-file.txt
+            echo "File created in sandbox, verifying it exists inside:"
+            ls -l sandbox-test-file.txt
+            cat sandbox-test-file.txt
+
+      - name: Test environment variables in sandbox
+        uses: ./
+        with:
+          run: |
+            echo "Testing environment variables in sandbox"
+            echo "CI=$CI"
+            echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
+            echo "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
+            echo "GITHUB_SHA=$GITHUB_SHA"
+            echo "RUNNER_OS=$RUNNER_OS"
+            echo "PATH=$PATH"
+
+      - name: Verify overlay isolation (file should NOT exist on host)
+        run: |
+          echo "Verifying file created in sandbox is NOT visible on host (overlay isolation)"
+          if [ -f sandbox-test-file.txt ]; then
+            echo "ERROR: File exists on host! Overlay isolation failed!"
+            cat sandbox-test-file.txt
+            rm sandbox-test-file.txt
+            exit 1
+          else
+            echo "✓ Good! File not found on host - overlay isolation working correctly"
+          fi
+
+      - name: Create test file on host
+        run: echo "Original host content" > test-modify.txt
+
+      - name: Modify file in sandbox (changes should stay in overlay)
+        uses: ./
+        with:
+          run: |
+            echo "Reading existing file from host:"
+            cat test-modify.txt
+            echo ""
+            echo "Modifying file in sandbox (changes go to overlay):"
+            echo "Added by sandbox" >> test-modify.txt
+            echo "File content inside sandbox after modification:"
+            cat test-modify.txt
+
+      - name: Verify host file unchanged (overlay isolation)
+        run: |
+          echo "Checking host file (should be unchanged due to overlay):"
+          cat test-modify.txt
+          if grep -q "Added by sandbox" test-modify.txt; then
+            echo "ERROR: Host file was modified! Overlay isolation failed!"
+            exit 1
+          else
+            echo "✓ Good! Host file unchanged - overlay isolation working correctly"
+          fi
+          rm test-modify.txt
+
+      - name: Test command failure handling (should fail)
+        id: failure-test
+        uses: ./
+        continue-on-error: true
+        with:
+          run: |
+            echo "This command will fail"
+            exit 1
+
+      - name: Verify failure was detected
+        run: |
+          if [ "${{ steps.failure-test.outcome }}" != "failure" ]; then
+            echo "ERROR: Failed command did not fail the action!"
+            echo "Outcome was: ${{ steps.failure-test.outcome }}"
+            exit 1
+          fi
+          echo "✓ Good! Failed command correctly failed the action"
+
+      - name: Test missing command failure (should fail)
+        id: missing-command-test
+        uses: ./
+        continue-on-error: true
+        with:
+          run: |
+            echo "Trying to run a command that doesn't exist"
+            this-command-does-not-exist
+
+      - name: Verify missing command failure
+        run: |
+          if [ "${{ steps.missing-command-test.outcome }}" != "failure" ]; then
+            echo "ERROR: Missing command did not fail the action!"
+            echo "Outcome was: ${{ steps.missing-command-test.outcome }}"
+            exit 1
+          fi
+          echo "✓ Good! Missing command correctly failed the action"
+
+      - name: Verify sandbox isolation
+        uses: ./
+        with:
+          run: |
+            echo "Testing sandbox isolation"
+            # Check filesystem isolation
+            echo "Root filesystem contents:"
+            ls / | head -20
+            # Try to write to root (should work since rootfs is read-write)
+            echo "test" > /test-file && echo "Successfully wrote to /test-file" && rm /test-file
+            # Check process isolation
+            echo "Process list (should only show sandbox processes):"
+            ls /proc/[0-9]* 2>/dev/null | wc -l || echo "Process information isolated"
+
+      - name: Test read-only access pattern
+        run: |
+          echo "Creating test files for read-only verification"
+          echo "Host file 1" > readonly-test-1.txt
+          echo "Host file 2" > readonly-test-2.txt
+
+      - name: Verify sandbox can read but changes don't persist
+        uses: ./
+        with:
+          run: |
+            echo "Reading host files:"
+            cat readonly-test-1.txt
+            cat readonly-test-2.txt
+            echo ""
+            echo "Deleting file 1 in sandbox (should work in overlay):"
+            rm readonly-test-1.txt
+            echo "File 1 deleted in sandbox"
+            echo ""
+            echo "Modifying file 2 in sandbox:"
+            echo "Modified in sandbox" > readonly-test-2.txt
+            cat readonly-test-2.txt
+
+      - name: Verify host files are intact
+        run: |
+          echo "Checking host files after sandbox operations:"
+          if [ -f readonly-test-1.txt ]; then
+            echo "✓ File 1 still exists on host (good!)"
+            cat readonly-test-1.txt
+          else
+            echo "ERROR: File 1 was deleted from host!"
+            exit 1
+          fi
+          echo ""
+          if grep -q "Host file 2" readonly-test-2.txt; then
+            echo "✓ File 2 unchanged on host (good!)"
+            cat readonly-test-2.txt
+          else
+            echo "ERROR: File 2 was modified on host!"
+            cat readonly-test-2.txt
+            exit 1
+          fi
+          rm readonly-test-1.txt readonly-test-2.txt
+
+      - name: Test package installation in Ubuntu environment
+        uses: ./
+        with:
+          run: |
+            echo "Testing package installation in Ubuntu 24.04 sandbox"
+            echo "Updating package list..."
+            apt-get update
+            echo "Installing curl..."
+            apt-get install -y curl
+            echo "Testing curl after installation..."
+            curl --version
+            echo "✓ Successfully installed and tested curl"
