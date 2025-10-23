@@ -163,7 +163,7 @@ func main() {
 				Effective: caps,
 				Permitted: caps,
 			},
-			NoNewPrivileges: true,
+			NoNewPrivileges: false,
 		},
 		Root: Root{
 			Path:     "rootfs",

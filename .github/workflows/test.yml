@@ -17,7 +17,7 @@ jobs:
           echo "Home directory: $HOME"
           echo "Hostname: $(hostname)"
           echo "HOSTNAME_FOR_TEST=$(hostname)" >> $GITHUB_ENV
-          echo "Can access network: $(curl -s -o /dev/null -w '%{http_code}' https://github.com || echo 'failed')"
+          echo "Can access network: $(curl -s -o /dev/null -w '%{http_code}' https://github.com)"
 
       - name: Run sandboxed command
         uses: ./
@@ -34,13 +34,9 @@ jobs:
             else
               echo "✗ Hostname mismatch! Sandbox: $(hostname), Host: $HOSTNAME_FOR_TEST"
             fi
-            # Test sudo access (if available)
-            if command -v sudo >/dev/null 2>&1; then
-              echo "Testing sudo access:"
-              sudo echo "✓ Passwordless sudo works!"
-            else
-              echo "Sudo not available in minimal rootfs"
-            fi
+            # Test sudo access (must be available)
+            echo "Testing sudo access:"
+            sudo echo "✓ Passwordless sudo works!"
             echo "OS Info:"
             cat /etc/os-release | grep -E "^(NAME|VERSION)" | head -2
 
@@ -50,7 +46,7 @@ jobs:
           run: |
             echo "=== Testing network connectivity ==="
             echo "Using apt-get update to verify network access..."
-            apt-get update && echo "✓ Network connectivity verified - apt-get update successful"
+            sudo apt-get update && echo "✓ Network connectivity verified - apt-get update successful"
 
       - name: Test file operations in sandbox
         uses: ./
@@ -189,7 +185,7 @@ jobs:
             echo "test" > /test-file && echo "Successfully wrote to /test-file" && rm /test-file
             # Check process isolation
             echo "Process list (should only show sandbox processes):"
-            ls /proc/[0-9]* 2>/dev/null | wc -l || echo "Process information isolated"
+            ls /proc/[0-9]* 2>/dev/null | wc -l
 
       - name: Test read-only access pattern
         run: |
@@ -240,9 +236,9 @@ jobs:
           run: |
             echo "Testing package installation in Ubuntu 24.04 sandbox"
             echo "Updating package list..."
-            apt-get update
+            sudo apt-get update
             echo "Installing curl..."
-            apt-get install -y curl
+            sudo apt-get install -y curl
             echo "Testing curl after installation..."
             curl --version
             echo "✓ Successfully installed and tested curl"
