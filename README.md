@@ -22,6 +22,23 @@ The commands run in a gVisor sandbox with
   - allow-listed environment variables
   - same user as the GitHub Actions runner, with sudo access
 
+> [!NOTE]
+> This action will detect and fail if the `actions/checkout` Action has
+> persisted authentication tokens in GITHUB_WORKSPACE (the default behavior).
+>
+> To use this action, you must disable credential persistence in your checkout
+> step:
+>
+> ```yaml
+> - uses: actions/checkout@v4
+>   with:
+>     persist-credentials: false
+> ```
+>
+> Alternatively, you can set `allow-checkout-credentials: true` to bypass this
+> check, but this is **NOT RECOMMENDED** as it will expose the GitHub token to
+> the sandbox.
+
 All tags use GitHub's Immutable Releases, so they can't be changed even if this
 repository is compromised.
 

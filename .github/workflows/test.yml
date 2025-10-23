@@ -3,11 +3,61 @@ name: Test Sandboxed Step
 on: [push, pull_request]
 
 jobs:
+  test-token-detection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with persisted credentials (default)
+        uses: actions/checkout@v4
+        # Intentionally NOT setting persist-credentials: false to test detection
+
+      - name: Test token detection (should fail)
+        id: token-test
+        uses: ./
+        continue-on-error: true
+        with:
+          run: |
+            echo "This should not run - token detection should fail"
+
+      - name: Verify token detection worked
+        run: |
+          if [ "${{ steps.token-test.outcome }}" != "failure" ]; then
+            echo "ERROR: Action should have failed due to persisted credentials!"
+            echo "Outcome was: ${{ steps.token-test.outcome }}"
+            exit 1
+          fi
+          echo "✓ Good! Token detection correctly prevented sandbox execution"
+
+      - name: Clear persisted credentials
+        run: |
+          # Remove the persisted credentials from git config
+          if [ -f .git/config ]; then
+            git config --unset-all http.https://github.com/.extraheader || true
+          fi
+
+      - name: Test sandbox runs without persisted credentials
+        uses: ./
+        with:
+          run: |
+            echo "✓ Sandbox runs successfully without persisted credentials"
+
+      - name: Re-checkout with persisted credentials
+        uses: actions/checkout@v4
+        # Intentionally keeping default persist-credentials: true
+
+      - name: Test with allow-checkout-credentials option
+        uses: ./
+        with:
+          allow-checkout-credentials: true
+          run: |
+            echo "✓ Sandbox runs with allow-checkout-credentials: true (warning should be shown)"
+
   test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Run normal command (not sandboxed)
         run: |

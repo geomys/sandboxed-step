@@ -9,6 +9,10 @@ inputs:
   run:
     description: 'Commands to run in the sandbox'
     required: true
+  allow-checkout-credentials:
+    description: 'Allow running even if checkout action has persisted credentials (NOT RECOMMENDED)'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -17,6 +21,25 @@ runs:
       shell: bash
       run: |
         set -euo pipefail  # Exit on any error, undefined variable, or pipe failure
+
+        # Check for persisted tokens from checkout action (unless explicitly allowed)
+        if [ -f "${{ github.workspace }}/.git/config" ]; then
+          # Check if git config contains authorization tokens
+          if grep -q "AUTHORIZATION:" "${{ github.workspace }}/.git/config" 2>/dev/null; then
+            if [ "${{ inputs.allow-checkout-credentials }}" != "true" ]; then
+              echo "::error::Security Error: Detected persisted authentication token from checkout action"
+              echo "::error::The checkout action has persisted credentials in .git/config which would be accessible inside the sandbox."
+              echo "::error::To fix this, use 'persist-credentials: false' in your checkout step:"
+              echo "::error::  - uses: actions/checkout@v4"
+              echo "::error::    with:"
+              echo "::error::      persist-credentials: false"
+              exit 1
+            else
+              echo "::warning::Security warning: Detected persisted authentication token from checkout action"
+              echo "::warning::You have chosen to allow persisted credentials inside the sandbox."
+            fi
+          fi
+        fi
 
         # Create a working directory for the sandbox
         SANDBOX_DIR=$(mktemp -d /tmp/gvisor-sandbox-XXXXXX)

@@ -3,6 +3,8 @@
 ## Project Overview
 Creating a GitHub Action that runs commands in a gVisor sandbox, similar to the built-in `run:` but with security isolation.
 
+This is a small project, you can read all of action.yml, README.md, generate-config.go, and .github/workflows/test.yml before doing any work.
+
 ## User Preferences & Design Decisions
 
 ### Architecture Choices
