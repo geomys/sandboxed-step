@@ -16,11 +16,15 @@ A GitHub Action that runs commands in a gVisor sandbox.
 The commands run in a gVisor sandbox with
 
   - an Ubuntu 24.04 root filesystem
-  - overlayed access to GITHUB_WORKSPACE (changes do not persist)
+  - overlayed access to GITHUB_WORKSPACE (changes do not persist by default)
   - GITHUB_WORKSPACE working directory
   - host network access
   - allow-listed environment variables
   - same user as the GitHub Actions runner, with sudo access
+
+Changes to the workspace inside the sandbox can be made to persist on the host
+by setting `persist-workspace-changes: 'true'`. This is unlikely to be safe, as
+following steps will need to treat the workspace as untrusted.
 
 > [!NOTE]
 > This action will detect and fail if the `actions/checkout` Action has

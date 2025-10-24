@@ -280,6 +280,59 @@ jobs:
           fi
           rm readonly-test-1.txt readonly-test-2.txt
 
+      - name: Test workspace persistence when enabled
+        uses: ./
+        with:
+          persist-workspace-changes: true
+          run: |
+            echo "Testing workspace persistence (persist-workspace-changes: true)"
+            echo "Creating a file that should persist on host"
+            echo "Created with persist-workspace-changes enabled" > persisted-file.txt
+            echo "File created in sandbox with persistence enabled"
+
+      - name: Verify file persisted on host
+        run: |
+          echo "Checking if file created with persist-workspace-changes exists on host:"
+          if [ -f persisted-file.txt ]; then
+            echo "✓ Good! File persisted on host as expected"
+            cat persisted-file.txt
+            # Verify content
+            if grep -q "Created with persist-workspace-changes enabled" persisted-file.txt; then
+              echo "✓ File content is correct"
+            else
+              echo "ERROR: File content is incorrect!"
+              exit 1
+            fi
+            rm persisted-file.txt
+          else
+            echo "ERROR: File did not persist on host!"
+            exit 1
+          fi
+
+      - name: Test modification persistence when enabled
+        run: echo "Original content for persistence test" > persist-modify-test.txt
+
+      - name: Modify file with persistence enabled
+        uses: ./
+        with:
+          persist-workspace-changes: true
+          run: |
+            echo "Modifying file with persist-workspace-changes enabled:"
+            echo "Modified with persistence" >> persist-modify-test.txt
+            cat persist-modify-test.txt
+
+      - name: Verify modification persisted
+        run: |
+          echo "Checking if modification persisted:"
+          cat persist-modify-test.txt
+          if grep -q "Modified with persistence" persist-modify-test.txt; then
+            echo "✓ Good! Modification persisted on host"
+          else
+            echo "ERROR: Modification did not persist!"
+            exit 1
+          fi
+          rm persist-modify-test.txt
+
       - name: Test package installation in Ubuntu environment
         uses: ./
         with:
