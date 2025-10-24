@@ -110,8 +110,16 @@ The minimal Ubuntu 24.04 rootfs includes:
 - **NEVER add fallbacks in tests** - tests should fail clearly when something is wrong, not try alternate approaches
 
 ### Important Maintenance Tasks
-- **Always rebuild rootfs when packages change**: When modifying packages in download-ubuntu-rootfs.sh, run `./download-ubuntu-rootfs.sh` to rebuild the rootfs
-- **Always rebuild generate-config**: When modifying generate-config.go, run `./build-generate-config.sh` to rebuild the binary
+- **Always rebuild rootfs when packages change**: When modifying packages in download-ubuntu-rootfs.sh, run `./download-ubuntu-rootfs.sh` to rebuild the rootfs (actually run it yourself, don't just tell the user to do it)
+- **Always rebuild generate-config**: When modifying generate-config.go, run `./build-generate-config.sh` to rebuild the binary (actually run it yourself)
+
+### Lessons Learned / Important Notes
+- **Simplicity over complexity**: When given a choice, prefer simple solutions (e.g., just check if file is empty with `-s`, don't overcomplicate with whitespace checks)
+- **Pass files as arguments, not environment variables**: When passing data to programs, especially with special characters, write to a file and pass the file path as an argument rather than using environment variables. Don't create unnecessary environment variables like SANDBOXED_ADDITIONAL_ENV_FILE - just pass the file path directly as a command argument
+- **Delete TODO.md when done**: Remove the TODO file completely when all tasks are complete, don't just mark items as done
+- **apt-get update exit codes are unreliable**: apt-get update returns 0 even when network fails (uses cached data), check for error messages in output instead
+- **GitHub Actions tool cache**: Setup-* actions install tools in RUNNER_TOOL_CACHE (typically /opt/hostedtoolcache), mount this read-only to expose tools in sandbox. Setup-go installs to paths like `/opt/hostedtoolcache/go/1.25.3/x64/bin/go` and adds them to PATH
+- **ca-certificates is essential**: Needed for any HTTPS connections (downloading Go packages, curl, etc.) - always include in rootfs
 
 ### Future Considerations
 - Currently Linux x86_64 only
