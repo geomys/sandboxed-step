@@ -5,14 +5,18 @@ A GitHub Action that runs commands in a gVisor sandbox.
 ## Motivation
 
 Surprisingly enough, GitHub Actions with read-only permissions still receive a
-cache write token, so they are not safe to run untrusted code.
+cache write token, allowing [cache poisoning](https://adnanthekhan.com/2024/05/06/the-monsters-in-your-build-cache-github-actions-cache-poisoning/),
+so they are not safe to run untrusted code.
 
 Moreover, there is no isolation between steps in a workflow, since they all run
 on the same VM with root access. The only alternative is separating workflows
 with `workflow_run`, but that has its own limitations and overhead.
 
 This can lead to a false sense of security when running untrusted code in a
-workflow or step with read-only permissions.
+workflow or step with read-only permissions, despite defaulting workflows to
+read-only permissions being a top-level feature.
+
+<img width="779" height="289" src="https://github.com/user-attachments/assets/810c1e72-f6cf-4aa8-9de3-73cefd93a342" />
 
 This Action runs commands in an isolated gVisor sandbox, allowing e.g. running
 CI against the latest versions of dependencies without risking being affected by
