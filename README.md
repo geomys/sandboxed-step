@@ -2,13 +2,28 @@
 
 A GitHub Action that runs commands in a gVisor sandbox.
 
+## Motivation
+
+Surprisingly enough, GitHub Actions with read-only permissions still receive a
+cache write token, so they are not safe to run untrusted code.
+
+Moreover, there is no isolation between steps in a workflow, since they all run
+on the same VM with root access. The only alternative is separating workflows
+with `workflow_run`, but that has its own limitations and overhead.
+
+This can lead to a false sense of security when running untrusted code in a
+workflow or step with read-only permissions.
+
+This Action runs commands in an isolated gVisor sandbox, allowing e.g. running
+CI against the latest versions of dependencies without risking being affected by
+supply chain attacks.
+
 ## Usage
 
 ```yaml
-- uses: geomys/sandboxed-step@v1.0.0
+- uses: geomys/sandboxed-step@v1.1.0
   with:
     run: |
-      apt-get update && apt-get install -y golang-go
       go get -u && go mod tidy
       go test ./...
 ```
@@ -21,6 +36,7 @@ The commands run in a gVisor sandbox with
   - host network access
   - allow-listed environment variables
   - same user as the GitHub Actions runner, with sudo access
+  - read-only access to tools installed by setup-* actions (via RUNNER_TOOL_CACHE)
 
 Changes to the workspace inside the sandbox can be made to persist on the host
 by setting `persist-workspace-changes: 'true'`. This is unlikely to be safe, as
@@ -54,18 +70,45 @@ repository is compromised.
 - `disable-network` (optional, default: `false`): Disable network access in the sandbox
 - `allow-checkout-credentials` (optional, default: `false`): Allow persisted checkout credentials (NOT RECOMMENDED)
 
-## Motivation
+### Example for sandboxed Go tests with latest dependencies
 
-Surprisingly enough, GitHub Actions with read-only permissions still receive a
-cache write token, so they are not safe to run untrusted code.
-
-Moreover, there is no isolation between steps in a workflow, since they all run
-on the same VM with root access. The only alternative is separating workflows
-with `workflow_run`, but that has its own limitations and overhead.
-
-This can lead to a false sense of security when running untrusted code in a
-workflow or step with read-only permissions.
-
-This Action runs commands in an isolated gVisor sandbox, allowing e.g. running
-CI against the latest versions of dependencies without risking being affected by
-supply chain attacks.
+```yaml
+name: Go tests
+on:
+  push:
+  pull_request:
+  schedule: # daily at 09:42 UTC
+    - cron: '42 9 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - { go-version: stable }
+          - { go-version: oldstable }
+          - { go-version-file: go.mod }
+        deps:
+          - locked
+          - latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go.go-version }}
+          go-version-file: ${{ matrix.go.go-version-file }}
+      - if: matrix.deps == 'locked'
+        run: go test ./...
+      - if: matrix.deps == 'latest'
+        uses: geomys/sandboxed-step@v1.1.0
+        with:
+          run: |
+            go get -u && go mod tidy
+            go test ./...
+```

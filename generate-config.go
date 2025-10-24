@@ -97,6 +97,7 @@ var envAllowlist = []string{
 	"RUNNER_DEBUG",
 	"RUNNER_NAME",
 	"RUNNER_OS",
+	"RUNNER_TOOL_CACHE",
 	"CI",
 	// Test-related (for our workflow tests)
 	"HOSTNAME_FOR_TEST",
@@ -150,6 +151,9 @@ func main() {
 		"CAP_KILL",
 	}
 
+	// Build mounts list
+	mounts := buildMountsList(workspace)
+
 	// Create the OCI config
 	config := OCIConfig{
 		OCIVersion: "1.0.0",
@@ -177,49 +181,7 @@ func main() {
 			Readonly: false,
 		},
 		Hostname: hostname,
-		Mounts: []Mount{
-			{
-				Destination: workspace,
-				Type:        "bind",
-				Source:      workspace,
-				Options:     []string{"rbind", "rw"},
-			},
-			{
-				Destination: "/proc",
-				Type:        "proc",
-				Source:      "proc",
-			},
-			{
-				Destination: "/dev",
-				Type:        "tmpfs",
-				Source:      "tmpfs",
-				Options:     []string{"nosuid", "strictatime", "mode=755", "size=65536k"},
-			},
-			{
-				Destination: "/dev/pts",
-				Type:        "devpts",
-				Source:      "devpts",
-				Options:     []string{"nosuid", "noexec", "newinstance", "ptmxmode=0666", "mode=0620"},
-			},
-			{
-				Destination: "/dev/shm",
-				Type:        "tmpfs",
-				Source:      "shm",
-				Options:     []string{"nosuid", "noexec", "nodev", "mode=1777", "size=65536k"},
-			},
-			{
-				Destination: "/sys",
-				Type:        "sysfs",
-				Source:      "sysfs",
-				Options:     []string{"nosuid", "noexec", "nodev", "ro"},
-			},
-			{
-				Destination: "/tmp",
-				Type:        "tmpfs",
-				Source:      "tmpfs",
-				Options:     []string{"nosuid", "nodev", "mode=1777"},
-			},
-		},
+		Mounts:   mounts,
 		Linux: &Linux{
 			Namespaces: []Namespace{
 				{Type: "pid"},
@@ -248,9 +210,28 @@ func buildEnvList(additionalEnvFile string) []string {
 		}
 	}
 
-	// Always set PATH and HOME for our sandbox environment
-	// These are not taken from the host, but set based on our Ubuntu rootfs
-	env = append(env, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+	// Build PATH: start with standard Ubuntu paths
+	pathComponents := []string{
+		"/usr/local/sbin",
+		"/usr/local/bin",
+		"/usr/sbin",
+		"/usr/bin",
+		"/sbin",
+		"/bin",
+	}
+
+	// Add any PATH components from host that are rooted in RUNNER_TOOL_CACHE
+	if toolCache := os.Getenv("RUNNER_TOOL_CACHE"); toolCache != "" {
+		if hostPath := os.Getenv("PATH"); hostPath != "" {
+			for _, p := range strings.Split(hostPath, ":") {
+				if strings.HasPrefix(p, toolCache) {
+					pathComponents = append(pathComponents, p)
+				}
+			}
+		}
+	}
+
+	env = append(env, "PATH="+strings.Join(pathComponents, ":"))
 	env = append(env, fmt.Sprintf("HOME=%s", "/home/"+os.Getenv("USER")))
 
 	// Add any additional user-specified environment variables from file
@@ -271,4 +252,65 @@ func buildEnvList(additionalEnvFile string) []string {
 	}
 
 	return env
+}
+
+func buildMountsList(workspace string) []Mount {
+	mounts := []Mount{
+		{
+			Destination: workspace,
+			Type:        "bind",
+			Source:      workspace,
+			Options:     []string{"rbind", "rw"},
+		},
+		{
+			Destination: "/proc",
+			Type:        "proc",
+			Source:      "proc",
+		},
+		{
+			Destination: "/dev",
+			Type:        "tmpfs",
+			Source:      "tmpfs",
+			Options:     []string{"nosuid", "strictatime", "mode=755", "size=65536k"},
+		},
+		{
+			Destination: "/dev/pts",
+			Type:        "devpts",
+			Source:      "devpts",
+			Options:     []string{"nosuid", "noexec", "newinstance", "ptmxmode=0666", "mode=0620"},
+		},
+		{
+			Destination: "/dev/shm",
+			Type:        "tmpfs",
+			Source:      "shm",
+			Options:     []string{"nosuid", "noexec", "nodev", "mode=1777", "size=65536k"},
+		},
+		{
+			Destination: "/sys",
+			Type:        "sysfs",
+			Source:      "sysfs",
+			Options:     []string{"nosuid", "noexec", "nodev", "ro"},
+		},
+		{
+			Destination: "/tmp",
+			Type:        "tmpfs",
+			Source:      "tmpfs",
+			Options:     []string{"nosuid", "nodev", "mode=1777"},
+		},
+	}
+
+	// Add RUNNER_TOOL_CACHE mount if it exists
+	if toolCache := os.Getenv("RUNNER_TOOL_CACHE"); toolCache != "" {
+		// Check if directory exists
+		if info, err := os.Stat(toolCache); err == nil && info.IsDir() {
+			mounts = append(mounts, Mount{
+				Destination: toolCache,
+				Type:        "bind",
+				Source:      toolCache,
+				Options:     []string{"rbind", "ro"}, // Read-only mount
+			})
+		}
+	}
+
+	return mounts
 }

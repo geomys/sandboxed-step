@@ -73,6 +73,11 @@ runs:
         WORKSPACE_PARENT=$(dirname "$WORKSPACE_DIR")
         sudo mkdir -p "$SANDBOX_DIR/rootfs$WORKSPACE_PARENT"
 
+        # Create mount point for RUNNER_TOOL_CACHE if it exists
+        if [ -n "${RUNNER_TOOL_CACHE:-}" ] && [ -d "${RUNNER_TOOL_CACHE}" ]; then
+          sudo mkdir -p "$SANDBOX_DIR/rootfs${RUNNER_TOOL_CACHE}"
+        fi
+
         # Create user in rootfs to match host user
         USER_ID=$(id -u)
         GROUP_ID=$(id -g)

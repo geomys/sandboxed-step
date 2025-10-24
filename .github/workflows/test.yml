@@ -447,3 +447,42 @@ jobs:
             echo "Testing that network is enabled by default"
             # apt-get update should work with network
             sudo apt-get update && echo "✓ Network access verified (apt-get update successful)"
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Test Go is accessible in sandbox
+        uses: ./
+        with:
+          run: |
+            echo "Testing Go installed by setup-go is accessible in sandbox"
+            echo "PATH in sandbox: $PATH"
+            echo "RUNNER_TOOL_CACHE: ${RUNNER_TOOL_CACHE:-not set}"
+
+            # Check if go is in PATH
+            if ! command -v go &> /dev/null; then
+              echo "ERROR: go command not found in PATH"
+              exit 1
+            fi
+
+            # Check go version
+            go version
+
+            # Check that it's the right go (from tool cache)
+            GO_PATH=$(which go)
+            echo "Go binary location: $GO_PATH"
+
+            if [[ "$GO_PATH" == *"$RUNNER_TOOL_CACHE"* ]]; then
+              echo "✓ Go is correctly loaded from RUNNER_TOOL_CACHE"
+            else
+              echo "ERROR: Go is not from RUNNER_TOOL_CACHE"
+              echo "Expected path to contain: $RUNNER_TOOL_CACHE"
+              echo "Got: $GO_PATH"
+              exit 1
+            fi
+
+            # Test that go actually works
+            echo 'package main; import "fmt"; func main() { fmt.Println("Hello from Go in sandbox!") }' > test.go
+            go run test.go
