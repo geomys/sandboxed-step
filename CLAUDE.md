@@ -11,7 +11,7 @@ This is a small project, you can read all of action.yml, README.md, generate-con
 - **No Docker in the Action**: gVisor provides sufficient isolation, Docker would be unnecessary layering
 - **Composite Action**: Not a Docker-based action, runs directly on the runner
 - **Pre-built binaries**: Include runsc and generate-config binaries (for Linux amd64) rather than downloading at runtime
-- **Pre-included rootfs**: Ship Ubuntu 24.04 rootfs (~30MB with ca-certificates) with the action, don't create minimal fallbacks
+- **Dynamic rootfs**: Download Docker images at runtime to use as rootfs (default: ghcr.io/catthehacker/ubuntu:runner-24.04)
 - **Single step execution**: Everything runs in one composite step, no separate setup step needed
 
 ### Security & Isolation Properties
@@ -29,7 +29,7 @@ This is a small project, you can read all of action.yml, README.md, generate-con
 3. **User environment**:
    - Run as same user as host (typically `runner` with UID 1001 on GitHub Actions)
    - NOT as root inside the sandbox
-   - Create matching user in rootfs with passwordless sudo
+   - The catthehacker image includes runner user with passwordless sudo pre-configured
    - **Important**: Use `sudo` to run runsc (rootless mode doesn't work well with networking)
    - Container processes still run as the runner user, not root (configured via OCI config)
 
@@ -63,21 +63,17 @@ action.yml              # Composite action definition
 generate-config         # Pre-built Linux amd64 binary for OCI config
 generate-config.go      # Source for config generator
 runsc                   # Pre-built gVisor runtime (64MB)
-ubuntu-24.04-rootfs.tar.gz  # Ubuntu rootfs (28MB)
 ```
 
-### Ubuntu Rootfs Contents
-The minimal Ubuntu 24.04 rootfs includes:
-- **Package management**: apt, apt-get, dpkg
-- **Shell & basics**: bash, cat, ls, cp, mv, rm, etc.
-- **Text processing**: sed, awk, grep, sort, etc.
-- **System tools**: ps, mount, service, systemctl stubs, sudo
-- **SSL/TLS**: ca-certificates (for HTTPS connections)
-- **NOT included by default**: curl, wget, ping, nc (can be installed with apt-get)
+### Docker Image Rootfs
+- **Default image**: ghcr.io/catthehacker/ubuntu:runner-24.04
+- **Features**: Full GitHub Actions runner environment with all tools pre-installed
+- **User**: Pre-configured runner user (UID 1001) with passwordless sudo
+- **Customizable**: Can specify any Docker image via `rootfs-image` input
+- **Downloaded at runtime**: Uses Docker to pull and export the image filesystem
 
 ### Maintenance Scripts
 - `update-runsc.sh`: Downloads latest runsc from Google
-- `download-ubuntu-rootfs.sh`: Uses Docker to export Ubuntu 24.04 rootfs
 - `build-generate-config.sh`: Cross-compiles generate-config for Linux amd64
 
 ### Key Technical Details
@@ -85,10 +81,10 @@ The minimal Ubuntu 24.04 rootfs includes:
 - Uses gVisor's `runsc run` (not `runsc do`)
 - Proper OCI bundle with config.json and rootfs directory
 - DNS configuration copied from host for network access
-- User/group creation in rootfs before container start
 - **Platform**: Default (systrap) - faster than ptrace
 - **Binary location**: Run runsc directly from action path, don't copy to /usr/local/bin
 - **Execution**: Use `sudo runsc` (rootless doesn't work with networking), but processes inside run as runner user
+- **Image extraction**: Uses Docker to pull and export the container filesystem
 
 ### Testing Philosophy
 - Tests should verify security properties (overlay isolation)
@@ -97,7 +93,7 @@ The minimal Ubuntu 24.04 rootfs includes:
 - Test both success and failure cases
 - **CRITICAL**: Test that failures propagate (script failures MUST fail the action)
 - Test missing commands fail properly
-- Network connectivity tested via `apt-get update` (apt-get is available in minimal Ubuntu rootfs)
+- Network connectivity tested via `apt-get update` (available in catthehacker image)
 
 ### What NOT to Do
 - Don't use Docker inside the action
@@ -110,7 +106,6 @@ The minimal Ubuntu 24.04 rootfs includes:
 - **NEVER add fallbacks in tests** - tests should fail clearly when something is wrong, not try alternate approaches
 
 ### Important Maintenance Tasks
-- **Always rebuild rootfs when packages change**: When modifying packages in download-ubuntu-rootfs.sh, run `./download-ubuntu-rootfs.sh` to rebuild the rootfs (actually run it yourself, don't just tell the user to do it)
 - **Always rebuild generate-config**: When modifying generate-config.go, run `./build-generate-config.sh` to rebuild the binary (actually run it yourself)
 
 ### Lessons Learned / Important Notes
@@ -119,10 +114,10 @@ The minimal Ubuntu 24.04 rootfs includes:
 - **Delete TODO.md when done**: Remove the TODO file completely when all tasks are complete, don't just mark items as done
 - **apt-get update exit codes are unreliable**: apt-get update returns 0 even when network fails (uses cached data), check for error messages in output instead
 - **GitHub Actions tool cache**: Setup-* actions install tools in RUNNER_TOOL_CACHE (typically /opt/hostedtoolcache), mount this read-only to expose tools in sandbox. Setup-go installs to paths like `/opt/hostedtoolcache/go/1.25.3/x64/bin/go` and adds them to PATH
-- **ca-certificates is essential**: Needed for any HTTPS connections (downloading Go packages, curl, etc.) - always include in rootfs
+- **Docker image benefits**: Using catthehacker images provides a full GitHub Actions environment with all standard tools and ca-certificates pre-installed
 
 ### Future Considerations
 - Currently Linux x86_64 only
 - Could potentially support ARM64 runners
-- Rootfs size could be optimized if needed
-- Network isolation could be added as an option
+- Network isolation could be added as an option (already implemented with disable-network input)
+- Different base images could be used for different language environments

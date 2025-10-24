@@ -30,7 +30,7 @@ supply chain attacks.
 
 The commands run in a gVisor sandbox with
 
-  - an Ubuntu 24.04 root filesystem
+  - a root filesystem similar to ubuntu-24.04 ([`ghcr.io/catthehacker/ubuntu:runner-24.04`](https://github.com/catthehacker/docker_images))
   - overlayed access to GITHUB_WORKSPACE (changes do not persist by default)
   - GITHUB_WORKSPACE working directory
   - host network access
@@ -69,6 +69,7 @@ repository is compromised.
 - `persist-workspace-changes` (optional, default: `false`): Allow changes to persist on the host
 - `disable-network` (optional, default: `false`): Disable network access in the sandbox
 - `allow-checkout-credentials` (optional, default: `false`): Allow persisted checkout credentials (NOT RECOMMENDED)
+- `rootfs-image` (optional, default: `ghcr.io/catthehacker/ubuntu:runner-24.04`): Docker image to use as the root filesystem
 
 ### Example for sandboxed Go tests with latest dependencies
 

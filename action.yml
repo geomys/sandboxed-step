@@ -25,14 +25,18 @@ inputs:
     description: 'Disable network access in the sandbox (default: false)'
     required: false
     default: 'false'
+  rootfs-image:
+    description: 'Docker image to use as the rootfs (default: ghcr.io/catthehacker/ubuntu:runner-24.04)'
+    required: false
+    default: 'ghcr.io/catthehacker/ubuntu:runner-24.04'
 
 runs:
   using: 'composite'
   steps:
     - name: Run in sandbox
-      shell: bash
+      shell: bash -e -o pipefail {0}
       run: |
-        set -euo pipefail  # Exit on any error, undefined variable, or pipe failure
+        # Set up and run the gVisor sandbox
 
         # Check for persisted tokens from checkout action (unless explicitly allowed)
         if [ -f "${{ github.workspace }}/.git/config" ]; then
@@ -56,11 +60,23 @@ runs:
         # Create a working directory for the sandbox
         SANDBOX_DIR=$(mktemp -d /tmp/gvisor-sandbox-XXXXXX)
 
-        # Extract the included Ubuntu 24.04 rootfs
-        echo "Extracting Ubuntu 24.04 rootfs..."
+        # Download and extract Docker image as rootfs
+        echo "Downloading rootfs image: ${{ inputs.rootfs-image }}..."
         mkdir -p "$SANDBOX_DIR/rootfs"
+
+        # Pull the Docker image
+        docker pull --platform linux/amd64 "${{ inputs.rootfs-image }}"
+
+        # Create a container from the image (don't start it)
+        CONTAINER_ID=$(docker create --platform linux/amd64 "${{ inputs.rootfs-image }}" /bin/true)
+
+        # Export the container's filesystem
+        echo "Extracting rootfs from Docker image..."
         # Use sudo to preserve file ownership and permissions (especially for setuid binaries like sudo)
-        sudo tar -xzpf "${{ github.action_path }}/ubuntu-24.04-rootfs.tar.gz" -C "$SANDBOX_DIR/rootfs"
+        docker export "$CONTAINER_ID" | sudo tar -xp -C "$SANDBOX_DIR/rootfs"
+
+        # Clean up the container
+        docker rm "$CONTAINER_ID" > /dev/null
 
         # Setup basic requirements for the container
         echo "Setting up container environment..."
@@ -77,31 +93,6 @@ runs:
         if [ -n "${RUNNER_TOOL_CACHE:-}" ] && [ -d "${RUNNER_TOOL_CACHE}" ]; then
           sudo mkdir -p "$SANDBOX_DIR/rootfs${RUNNER_TOOL_CACHE}"
         fi
-
-        # Create user in rootfs to match host user
-        USER_ID=$(id -u)
-        GROUP_ID=$(id -g)
-        USER_NAME="${USER:-runner}"
-        # HOME is always /home/username in our sandbox
-        USER_HOME="/home/$USER_NAME"
-
-        # Create home directory in rootfs
-        sudo mkdir -p "$SANDBOX_DIR/rootfs$USER_HOME"
-        # Set proper ownership for user's home directory
-        sudo chown "$USER_ID:$GROUP_ID" "$SANDBOX_DIR/rootfs$USER_HOME"
-
-        # Add user and group to rootfs
-        echo "$USER_NAME:x:$USER_ID:$GROUP_ID:$USER_NAME:$USER_HOME:/bin/bash" | sudo tee -a "$SANDBOX_DIR/rootfs/etc/passwd" > /dev/null
-        echo "$USER_NAME:x:$GROUP_ID:" | sudo tee -a "$SANDBOX_DIR/rootfs/etc/group" > /dev/null
-        # Add user to shadow file (needed for PAM authentication)
-        echo "$USER_NAME:*:19000:0:99999:7:::" | sudo tee -a "$SANDBOX_DIR/rootfs/etc/shadow" > /dev/null
-        sudo chmod 0640 "$SANDBOX_DIR/rootfs/etc/shadow"
-
-        # Configure passwordless sudo for the user (must exist in rootfs)
-        # Use sudo to create the file with correct root ownership
-        echo "$USER_NAME ALL=(ALL) NOPASSWD: ALL" | sudo tee "$SANDBOX_DIR/rootfs/etc/sudoers.d/$USER_NAME" > /dev/null
-        sudo chmod 0440 "$SANDBOX_DIR/rootfs/etc/sudoers.d/$USER_NAME"
-        sudo chown root:root "$SANDBOX_DIR/rootfs/etc/sudoers.d/$USER_NAME"
 
         # Create the user script inside the rootfs
         sudo tee "$SANDBOX_DIR/rootfs/entrypoint.sh" > /dev/null << 'SANDBOXED_SCRIPT_EOF'
