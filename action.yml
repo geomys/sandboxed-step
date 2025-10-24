@@ -17,6 +17,10 @@ inputs:
     description: 'Allow changes to the workspace to persist on the host'
     required: false
     default: 'false'
+  env:
+    description: 'Additional environment variables to set in the sandbox (one per line, KEY=VALUE format)'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -101,7 +105,16 @@ runs:
         sudo chmod +x "$SANDBOX_DIR/rootfs/entrypoint.sh"
 
         # Generate OCI config using the pre-built binary
-        "${{ github.action_path }}/generate-config" > "$SANDBOX_DIR/config.json"
+        # Write the env input to a temporary file to safely handle quotes and newlines
+        cat > "$SANDBOX_DIR/additional_env.txt" << 'SANDBOXED_ENV_EOF'
+        ${{ inputs.env }}
+        SANDBOXED_ENV_EOF
+        # Only pass the file if it's not empty
+        if [ -s "$SANDBOX_DIR/additional_env.txt" ]; then
+          "${{ github.action_path }}/generate-config" "$SANDBOX_DIR/additional_env.txt" > "$SANDBOX_DIR/config.json"
+        else
+          "${{ github.action_path }}/generate-config" > "$SANDBOX_DIR/config.json"
+        fi
 
         # Run the container with runsc
         CONTAINER_ID="sandbox-$$-$(date +%s)"

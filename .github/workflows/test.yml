@@ -148,6 +148,83 @@ jobs:
             echo "RUNNER_OS=$RUNNER_OS"
             echo "PATH=$PATH"
 
+      - name: Test custom environment variables
+        uses: ./
+        with:
+          env: |
+            MY_CUSTOM_VAR=hello_world
+            TEST_DATABASE_URL=postgres://test:5432/db
+            NUMERIC_VAR=42
+            EMPTY_VAR=
+            VAR_WITH_QUOTES=This "has quotes" in it
+            JSON_STRING={"key": "value", "number": 123}
+          run: |
+            echo "Testing custom environment variables"
+            # Check that custom vars are set
+            if [ "$MY_CUSTOM_VAR" = "hello_world" ]; then
+              echo "✓ MY_CUSTOM_VAR is correctly set: $MY_CUSTOM_VAR"
+            else
+              echo "ERROR: MY_CUSTOM_VAR not set correctly. Got: '$MY_CUSTOM_VAR'"
+              exit 1
+            fi
+
+            if [ "$TEST_DATABASE_URL" = "postgres://test:5432/db" ]; then
+              echo "✓ TEST_DATABASE_URL is correctly set: $TEST_DATABASE_URL"
+            else
+              echo "ERROR: TEST_DATABASE_URL not set correctly. Got: '$TEST_DATABASE_URL'"
+              exit 1
+            fi
+
+            if [ "$NUMERIC_VAR" = "42" ]; then
+              echo "✓ NUMERIC_VAR is correctly set: $NUMERIC_VAR"
+            else
+              echo "ERROR: NUMERIC_VAR not set correctly. Got: '$NUMERIC_VAR'"
+              exit 1
+            fi
+
+            if [ -z "$EMPTY_VAR" ]; then
+              echo "✓ EMPTY_VAR is correctly empty"
+            else
+              echo "ERROR: EMPTY_VAR should be empty. Got: '$EMPTY_VAR'"
+              exit 1
+            fi
+
+            # Test variable with quotes
+            if [ "$VAR_WITH_QUOTES" = 'This "has quotes" in it' ]; then
+              echo "✓ VAR_WITH_QUOTES correctly handles quotes: $VAR_WITH_QUOTES"
+            else
+              echo "ERROR: VAR_WITH_QUOTES not set correctly. Got: '$VAR_WITH_QUOTES'"
+              exit 1
+            fi
+
+            # Test JSON string with quotes and special characters
+            if [ "$JSON_STRING" = '{"key": "value", "number": 123}' ]; then
+              echo "✓ JSON_STRING correctly handles JSON: $JSON_STRING"
+            else
+              echo "ERROR: JSON_STRING not set correctly. Got: '$JSON_STRING'"
+              exit 1
+            fi
+
+            # Verify these custom vars don't leak to host
+            echo "Custom vars processed successfully"
+
+      - name: Verify custom env vars don't leak to host
+        run: |
+          echo "Verifying custom environment variables don't exist on host"
+          if [ -z "${MY_CUSTOM_VAR:-}" ]; then
+            echo "✓ MY_CUSTOM_VAR does not exist on host (good)"
+          else
+            echo "ERROR: MY_CUSTOM_VAR leaked to host: $MY_CUSTOM_VAR"
+            exit 1
+          fi
+
+          if [ -z "${TEST_DATABASE_URL:-}" ]; then
+            echo "✓ TEST_DATABASE_URL does not exist on host (good)"
+          else
+            echo "ERROR: TEST_DATABASE_URL leaked to host: $TEST_DATABASE_URL"
+            exit 1
+          fi
+
       - name: Verify overlay isolation (file should NOT exist on host)
         run: |
           echo "Verifying file created in sandbox is NOT visible on host (overlay isolation)"

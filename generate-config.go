@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // OCIConfig represents the OCI runtime specification
@@ -108,6 +109,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Optional: read additional env file from command line argument
+	var additionalEnvFile string
+	if len(os.Args) > 1 {
+		additionalEnvFile = os.Args[1]
+	}
+
 	// Get hostname from host system
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -125,7 +132,7 @@ func main() {
 	}
 
 	// Build environment variables list
-	env := buildEnvList()
+	env := buildEnvList(additionalEnvFile)
 
 	// Define capabilities
 	caps := []string{
@@ -232,7 +239,7 @@ func main() {
 	}
 }
 
-func buildEnvList() []string {
+func buildEnvList(additionalEnvFile string) []string {
 	env := []string{}
 
 	for _, name := range envAllowlist {
@@ -245,6 +252,23 @@ func buildEnvList() []string {
 	// These are not taken from the host, but set based on our Ubuntu rootfs
 	env = append(env, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
 	env = append(env, fmt.Sprintf("HOME=%s", "/home/"+os.Getenv("USER")))
+
+	// Add any additional user-specified environment variables from file
+	if additionalEnvFile != "" {
+		content, err := os.ReadFile(additionalEnvFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Failed to read environment file %s: %v\n", additionalEnvFile, err)
+			os.Exit(1)
+		}
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			// Skip empty lines and validate format
+			if line != "" && strings.Contains(line, "=") {
+				env = append(env, line)
+			}
+		}
+	}
 
 	return env
 }

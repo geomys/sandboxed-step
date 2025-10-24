@@ -46,6 +46,13 @@ following steps will need to treat the workspace as untrusted.
 All tags use GitHub's Immutable Releases, so they can't be changed even if this
 repository is compromised.
 
+### Inputs
+
+- `run` (required): Commands to run in the sandbox
+- `env` (optional): Additional environment variables to set in the sandbox (one per line, KEY=VALUE format)
+- `persist-workspace-changes` (optional, default: `false`): Allow changes to persist on the host
+- `allow-checkout-credentials` (optional, default: `false`): Allow persisted checkout credentials (NOT RECOMMENDED)
+
 ## Motivation
 
 Surprisingly enough, GitHub Actions with read-only permissions still receive a
