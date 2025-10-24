@@ -106,6 +106,7 @@ The minimal Ubuntu 24.04 rootfs includes:
 - Don't use bash for JSON generation
 - Don't pollute GITHUB_ENV
 - Don't add fallback values for "reliability" - fail explicitly
+- **NEVER add fallbacks in tests** - tests should fail clearly when something is wrong, not try alternate approaches
 
 ### Future Considerations
 - Currently Linux x86_64 only

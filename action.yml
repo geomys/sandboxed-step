@@ -21,6 +21,10 @@ inputs:
     description: 'Additional environment variables to set in the sandbox (one per line, KEY=VALUE format)'
     required: false
     default: ''
+  disable-network:
+    description: 'Disable network access in the sandbox (default: false)'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -131,8 +135,15 @@ runs:
           # Use overlay for all mounts (including workspace) for full isolation
           OVERLAY_FLAGS="--overlay2=all:self"
         fi
+        # Configure network based on disable-network setting
+        if [ "${{ inputs.disable-network }}" = "true" ]; then
+          echo "::notice::Network access disabled in sandbox"
+          NETWORK_FLAGS="--network=none"
+        else
+          NETWORK_FLAGS="--network=host"
+        fi
         # Add debug logging if RUNNER_DEBUG is set
-        RUNSC_FLAGS="--network=host $OVERLAY_FLAGS --file-access-mounts=exclusive --allow-suid"
+        RUNSC_FLAGS="$NETWORK_FLAGS $OVERLAY_FLAGS --file-access-mounts=exclusive --allow-suid"
         if [ "${RUNNER_DEBUG:-0}" = "1" ]; then
           RUNSC_FLAGS="--debug --debug-log=/tmp/runsc-debug.log $RUNSC_FLAGS"
         fi

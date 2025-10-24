@@ -422,3 +422,28 @@ jobs:
             echo "Testing curl after installation..."
             curl --version
             echo "✓ Successfully installed and tested curl"
+
+      - name: Test network isolation (should fail to connect)
+        uses: ./
+        with:
+          disable-network: true
+          run: |
+            echo "Testing network isolation (network should be disabled)"
+            # Try apt-get update and check for network failure messages
+            OUTPUT=$(sudo apt-get update 2>&1)
+            if echo "$OUTPUT" | grep -q "Temporary failure resolving"; then
+              echo "✓ Good! Network is properly isolated (DNS resolution failed as expected)"
+            else
+              echo "ERROR: Expected network failure but didn't see DNS resolution errors!"
+              echo "Output was:"
+              echo "$OUTPUT"
+              exit 1
+            fi
+
+      - name: Test network is enabled by default
+        uses: ./
+        with:
+          run: |
+            echo "Testing that network is enabled by default"
+            # apt-get update should work with network
+            sudo apt-get update && echo "✓ Network access verified (apt-get update successful)"

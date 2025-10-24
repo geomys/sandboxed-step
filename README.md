@@ -51,6 +51,7 @@ repository is compromised.
 - `run` (required): Commands to run in the sandbox
 - `env` (optional): Additional environment variables to set in the sandbox (one per line, KEY=VALUE format)
 - `persist-workspace-changes` (optional, default: `false`): Allow changes to persist on the host
+- `disable-network` (optional, default: `false`): Disable network access in the sandbox
 - `allow-checkout-credentials` (optional, default: `false`): Allow persisted checkout credentials (NOT RECOMMENDED)
 
 ## Motivation
