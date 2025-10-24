@@ -486,3 +486,8 @@ jobs:
             # Test that go actually works
             echo 'package main; import "fmt"; func main() { fmt.Println("Hello from Go in sandbox!") }' > test.go
             go run test.go
+
+            # Test that Go can download external packages (requires ca-certificates)
+            echo "Testing Go can download and run external packages..."
+            go run honnef.co/go/tools/cmd/staticcheck@latest -h > /dev/null 2>&1
+            echo "✓ Successfully downloaded and ran external Go package (SSL/TLS working)"

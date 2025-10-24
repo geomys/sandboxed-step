@@ -11,7 +11,7 @@ This is a small project, you can read all of action.yml, README.md, generate-con
 - **No Docker in the Action**: gVisor provides sufficient isolation, Docker would be unnecessary layering
 - **Composite Action**: Not a Docker-based action, runs directly on the runner
 - **Pre-built binaries**: Include runsc and generate-config binaries (for Linux amd64) rather than downloading at runtime
-- **Pre-included rootfs**: Ship Ubuntu 24.04 rootfs (~28MB) with the action, don't create minimal fallbacks
+- **Pre-included rootfs**: Ship Ubuntu 24.04 rootfs (~30MB with ca-certificates) with the action, don't create minimal fallbacks
 - **Single step execution**: Everything runs in one composite step, no separate setup step needed
 
 ### Security & Isolation Properties
@@ -71,7 +71,8 @@ The minimal Ubuntu 24.04 rootfs includes:
 - **Package management**: apt, apt-get, dpkg
 - **Shell & basics**: bash, cat, ls, cp, mv, rm, etc.
 - **Text processing**: sed, awk, grep, sort, etc.
-- **System tools**: ps, mount, service, systemctl stubs
+- **System tools**: ps, mount, service, systemctl stubs, sudo
+- **SSL/TLS**: ca-certificates (for HTTPS connections)
 - **NOT included by default**: curl, wget, ping, nc (can be installed with apt-get)
 
 ### Maintenance Scripts
@@ -107,6 +108,10 @@ The minimal Ubuntu 24.04 rootfs includes:
 - Don't pollute GITHUB_ENV
 - Don't add fallback values for "reliability" - fail explicitly
 - **NEVER add fallbacks in tests** - tests should fail clearly when something is wrong, not try alternate approaches
+
+### Important Maintenance Tasks
+- **Always rebuild rootfs when packages change**: When modifying packages in download-ubuntu-rootfs.sh, run `./download-ubuntu-rootfs.sh` to rebuild the rootfs
+- **Always rebuild generate-config**: When modifying generate-config.go, run `./build-generate-config.sh` to rebuild the binary
 
 ### Future Considerations
 - Currently Linux x86_64 only

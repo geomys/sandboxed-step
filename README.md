@@ -21,7 +21,7 @@ supply chain attacks.
 ## Usage
 
 ```yaml
-- uses: geomys/sandboxed-step@v1.1.0
+- uses: geomys/sandboxed-step@v1.1.1
   with:
     run: |
       go get -u && go mod tidy
@@ -103,12 +103,35 @@ jobs:
         with:
           go-version: ${{ matrix.go.go-version }}
           go-version-file: ${{ matrix.go.go-version-file }}
-      - if: matrix.deps == 'locked'
-        run: go test ./...
-      - if: matrix.deps == 'latest'
-        uses: geomys/sandboxed-step@v1.1.0
+      - uses: geomys/sandboxed-step@v1.1.1
         with:
           run: |
-            go get -u && go mod tidy
+            if [ "${{ matrix.deps }}" = "latest" ]; then
+              go get -u && go mod tidy
+            fi
             go test ./...
+  staticcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - uses: geomys/sandboxed-step@v1.1.1
+        with:
+          run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - uses: geomys/sandboxed-step@v1.1.1
+        with:
+          run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 ```

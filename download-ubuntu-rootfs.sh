@@ -9,9 +9,9 @@ docker pull --platform linux/amd64 ubuntu:24.04
 echo "Running container to install packages..."
 CONTAINER_ID=$(docker run -d --platform linux/amd64 ubuntu:24.04 tail -f /dev/null)
 
-echo "Installing sudo in container..."
+echo "Installing sudo and ca-certificates in container..."
 docker exec "$CONTAINER_ID" apt-get update
-docker exec "$CONTAINER_ID" apt-get install -y sudo
+docker exec "$CONTAINER_ID" apt-get install -y sudo ca-certificates
 
 echo "Stopping container..."
 docker stop "$CONTAINER_ID"
