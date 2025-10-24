@@ -68,8 +68,8 @@ repository is compromised.
 - `env` (optional): Additional environment variables to set in the sandbox (one per line, KEY=VALUE format)
 - `persist-workspace-changes` (optional, default: `false`): Allow changes to persist on the host
 - `disable-network` (optional, default: `false`): Disable network access in the sandbox
-- `allow-checkout-credentials` (optional, default: `false`): Allow persisted checkout credentials (NOT RECOMMENDED)
-- `rootfs-image` (optional, default: `ghcr.io/catthehacker/ubuntu:runner-24.04`): Docker image to use as the root filesystem
+- `allow-checkout-credentials` (optional, default: `false`): Allow persisted checkout credentials
+- `rootfs-image` (optional): Docker image to use as the root filesystem
 
 ### Example for sandboxed Go tests with latest dependencies
 
