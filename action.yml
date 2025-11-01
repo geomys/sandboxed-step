@@ -35,14 +35,21 @@ runs:
   steps:
     - name: Run in sandbox
       shell: bash -e -o pipefail {0}
+      env:
+        INPUTS_ALLOW_CHECKOUT_CREDENTIALS: ${{ inputs.allow-checkout-credentials }}
+        INPUTS_DISABLE_NETWORK: ${{ inputs.disable-network }}
+        INPUTS_ENV: ${{ inputs.env }}
+        INPUTS_PERSIST_WORKSPACE_CHANGES: ${{ inputs.persist-workspace-changes }}
+        INPUTS_ROOTFS_IMAGE: ${{ inputs.rootfs-image }}
+        INPUTS_RUN: ${{ inputs.run }}
       run: |
         # Set up and run the gVisor sandbox
 
         # Check for persisted tokens from checkout action (unless explicitly allowed)
-        if [ -f "${{ github.workspace }}/.git/config" ]; then
+        if [ -f "$GITHUB_WORKSPACE/.git/config" ]; then
           # Check if git config contains authorization tokens
-          if grep -q "AUTHORIZATION:" "${{ github.workspace }}/.git/config" 2>/dev/null; then
-            if [ "${{ inputs.allow-checkout-credentials }}" != "true" ]; then
+          if grep -q "AUTHORIZATION:" "$GITHUB_WORKSPACE/.git/config" 2>/dev/null; then
+            if [ "$INPUTS_ALLOW_CHECKOUT_CREDENTIALS" != "true" ]; then
               echo "::error::Security Error: Detected persisted authentication token from checkout action"
               echo "::error::The checkout action has persisted credentials in .git/config which would be accessible inside the sandbox."
               echo "::error::To fix this, use 'persist-credentials: false' in your checkout step:"
@@ -61,14 +68,14 @@ runs:
         SANDBOX_DIR=$(mktemp -d /tmp/gvisor-sandbox-XXXXXX)
 
         # Download and extract Docker image as rootfs
-        echo "Downloading rootfs image: ${{ inputs.rootfs-image }}..."
+        echo "Downloading rootfs image: $INPUTS_ROOTFS_IMAGE..."
         mkdir -p "$SANDBOX_DIR/rootfs"
 
         # Pull the Docker image
-        docker pull --platform linux/amd64 "${{ inputs.rootfs-image }}"
+        docker pull --platform linux/amd64 "$INPUTS_ROOTFS_IMAGE"
 
         # Create a container from the image (don't start it)
-        CONTAINER_ID=$(docker create --platform linux/amd64 "${{ inputs.rootfs-image }}" /bin/true)
+        CONTAINER_ID=$(docker create --platform linux/amd64 "$INPUTS_ROOTFS_IMAGE" /bin/true)
 
         # Export the container's filesystem
         echo "Extracting rootfs from Docker image..."
@@ -85,7 +92,7 @@ runs:
         sudo cp /etc/resolv.conf "$SANDBOX_DIR/rootfs/etc/resolv.conf"
 
         # Create parent directories for workspace mount point
-        WORKSPACE_DIR="${{ github.workspace }}"
+        WORKSPACE_DIR="$GITHUB_WORKSPACE"
         WORKSPACE_PARENT=$(dirname "$WORKSPACE_DIR")
         sudo mkdir -p "$SANDBOX_DIR/rootfs$WORKSPACE_PARENT"
 
@@ -95,25 +102,25 @@ runs:
         fi
 
         # Create the user script inside the rootfs
-        sudo tee "$SANDBOX_DIR/rootfs/entrypoint.sh" > /dev/null << 'SANDBOXED_SCRIPT_EOF'
+        sudo tee "$SANDBOX_DIR/rootfs/entrypoint.sh" > /dev/null << SANDBOXED_SCRIPT_EOF
         #!/bin/bash
         set -euo pipefail  # Exit on any error, undefined variable, or pipe failure
-        cd "${{ github.workspace }}"
-        ${{ inputs.run }}
+        cd "\$GITHUB_WORKSPACE"
+        $INPUTS_RUN
         SANDBOXED_SCRIPT_EOF
 
         sudo chmod +x "$SANDBOX_DIR/rootfs/entrypoint.sh"
 
         # Generate OCI config using the pre-built binary
         # Write the env input to a temporary file to safely handle quotes and newlines
-        cat > "$SANDBOX_DIR/additional_env.txt" << 'SANDBOXED_ENV_EOF'
-        ${{ inputs.env }}
+        cat > "$SANDBOX_DIR/additional_env.txt" << SANDBOXED_ENV_EOF
+        $INPUTS_ENV
         SANDBOXED_ENV_EOF
         # Only pass the file if it's not empty
         if [ -s "$SANDBOX_DIR/additional_env.txt" ]; then
-          "${{ github.action_path }}/generate-config" "$SANDBOX_DIR/additional_env.txt" > "$SANDBOX_DIR/config.json"
+          "$GITHUB_ACTION_PATH/generate-config" "$SANDBOX_DIR/additional_env.txt" > "$SANDBOX_DIR/config.json"
         else
-          "${{ github.action_path }}/generate-config" > "$SANDBOX_DIR/config.json"
+          "$GITHUB_ACTION_PATH/generate-config" > "$SANDBOX_DIR/config.json"
         fi
 
         # Run the container with runsc
@@ -123,7 +130,7 @@ runs:
         cd "$SANDBOX_DIR"
         # Configure overlay based on persist-workspace-changes setting
         # Note: Running runsc with sudo but container processes still run as runner user (not root)
-        if [ "${{ inputs.persist-workspace-changes }}" = "true" ]; then
+        if [ "$INPUTS_PERSIST_WORKSPACE_CHANGES" = "true" ]; then
           echo "::warning::Workspace changes will persist on the host filesystem"
           # Use overlay only for root filesystem, not for bind mounts (workspace)
           OVERLAY_FLAGS="--overlay2=root:self"
@@ -132,7 +139,7 @@ runs:
           OVERLAY_FLAGS="--overlay2=all:self"
         fi
         # Configure network based on disable-network setting
-        if [ "${{ inputs.disable-network }}" = "true" ]; then
+        if [ "$INPUTS_DISABLE_NETWORK" = "true" ]; then
           echo "::notice::Network access disabled in sandbox"
           NETWORK_FLAGS="--network=none"
         else
@@ -145,7 +152,7 @@ runs:
         fi
         # Run the sandbox and capture exit code
         EXIT_CODE=0
-        sudo "${{ github.action_path }}/runsc" $RUNSC_FLAGS run "$CONTAINER_ID" || EXIT_CODE=$?
+        sudo "$GITHUB_ACTION_PATH/runsc" $RUNSC_FLAGS run "$CONTAINER_ID" || EXIT_CODE=$?
 
         # Clean up (always run, even if sandbox failed)
         cd /

@@ -115,6 +115,7 @@ runsc                   # Pre-built gVisor runtime (64MB)
 - **apt-get update exit codes are unreliable**: apt-get update returns 0 even when network fails (uses cached data), check for error messages in output instead
 - **GitHub Actions tool cache**: Setup-* actions install tools in RUNNER_TOOL_CACHE (typically /opt/hostedtoolcache), mount this read-only to expose tools in sandbox. Setup-go installs to paths like `/opt/hostedtoolcache/go/1.25.3/x64/bin/go` and adds them to PATH
 - **Docker image benefits**: Using catthehacker images provides a full GitHub Actions environment with all standard tools and ca-certificates pre-installed
+- **Shell injection with GitHub expressions**: Using `${{ inputs.foo }}` directly in shell scripts allows code injection because expressions expand before shell execution; map to environment variables instead and reference as `$INPUT_FOO`
 
 ### Future Considerations
 - Currently Linux x86_64 only
