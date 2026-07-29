@@ -17,6 +17,10 @@ inputs:
     description: 'Allow changes to the workspace to persist on the host'
     required: false
     default: 'false'
+  persist-paths:
+    description: 'Workspace-relative paths whose changes persist on the host (one per line)'
+    required: false
+    default: ''
   env:
     description: 'Additional environment variables to set in the sandbox (one per line, KEY=VALUE format)'
     required: false
@@ -39,6 +43,7 @@ runs:
         INPUTS_ALLOW_CHECKOUT_CREDENTIALS: ${{ inputs.allow-checkout-credentials }}
         INPUTS_DISABLE_NETWORK: ${{ inputs.disable-network }}
         INPUTS_ENV: ${{ inputs.env }}
+        INPUTS_PERSIST_PATHS: ${{ inputs.persist-paths }}
         INPUTS_PERSIST_WORKSPACE_CHANGES: ${{ inputs.persist-workspace-changes }}
         INPUTS_ROOTFS_IMAGE: ${{ inputs.rootfs-image }}
         INPUTS_RUN: ${{ inputs.run }}
@@ -66,6 +71,63 @@ runs:
 
         # Create a working directory for the sandbox
         SANDBOX_DIR=$(mktemp -d /tmp/gvisor-sandbox-XXXXXX)
+
+        # Set up host-side overlayfs so workspace writes land in a discarded
+        # upper layer, except for persist-paths which bind-mount through.
+        WORKSPACE_SOURCE="$GITHUB_WORKSPACE"
+        HOST_OVERLAY_MERGED=""
+        PERSIST_PATHS_FILE=""
+        if [ -n "$INPUTS_PERSIST_PATHS" ]; then
+          if [ "$INPUTS_PERSIST_WORKSPACE_CHANGES" = "true" ]; then
+            echo "::error::persist-paths cannot be combined with persist-workspace-changes"
+            exit 1
+          fi
+
+          PERSIST_PATHS_FILE="$SANDBOX_DIR/persist_paths.txt"
+          printenv INPUTS_PERSIST_PATHS > "$PERSIST_PATHS_FILE"
+
+          # Create each path on the host so the overlay's lower layer has it.
+          while IFS= read -r persist_path || [ -n "$persist_path" ]; do
+            persist_path="${persist_path%$'\r'}"
+            persist_path="${persist_path#"${persist_path%%[![:space:]]*}"}"
+            persist_path="${persist_path%"${persist_path##*[![:space:]]}"}"
+            if [ -z "$persist_path" ]; then
+              continue
+            fi
+            case "$persist_path" in
+              /*)
+                echo "::error::persist-paths entries must be workspace-relative, got: $persist_path"
+                exit 1
+                ;;
+            esac
+            case "/$persist_path/" in
+              */../*)
+                echo "::error::persist-paths entries must not contain '..', got: $persist_path"
+                exit 1
+                ;;
+            esac
+            mkdir -p "$GITHUB_WORKSPACE/$persist_path"
+            # Reject symlinks that escape the workspace, since the bind mount
+            # below would follow them and expose host paths to the sandbox.
+            canonical=$(realpath -- "$GITHUB_WORKSPACE/$persist_path")
+            canonical_ws=$(realpath -- "$GITHUB_WORKSPACE")
+            case "$canonical/" in
+              "$canonical_ws"/*) ;;
+              *)
+                echo "::error::persist-paths entry '$persist_path' resolves outside the workspace"
+                exit 1
+                ;;
+            esac
+          done < "$PERSIST_PATHS_FILE"
+
+          HOST_OVERLAY_DIR="$SANDBOX_DIR/host_overlay"
+          mkdir -p "$HOST_OVERLAY_DIR/upper" "$HOST_OVERLAY_DIR/work" "$HOST_OVERLAY_DIR/merged"
+          sudo mount -t overlay overlay \
+            -o "lowerdir=$GITHUB_WORKSPACE,upperdir=$HOST_OVERLAY_DIR/upper,workdir=$HOST_OVERLAY_DIR/work" \
+            "$HOST_OVERLAY_DIR/merged"
+          HOST_OVERLAY_MERGED="$HOST_OVERLAY_DIR/merged"
+          WORKSPACE_SOURCE="$HOST_OVERLAY_DIR/merged"
+        fi
 
         # Download and extract Docker image as rootfs
         echo "Downloading rootfs image: $INPUTS_ROOTFS_IMAGE..."
@@ -116,9 +178,9 @@ runs:
         printenv INPUTS_ENV > "$SANDBOX_DIR/additional_env.txt"
         # Only pass the file if it's not empty
         if [ -s "$SANDBOX_DIR/additional_env.txt" ]; then
-          "$GITHUB_ACTION_PATH/generate-config" "$SANDBOX_DIR/additional_env.txt" > "$SANDBOX_DIR/config.json"
+          "$GITHUB_ACTION_PATH/generate-config" "$SANDBOX_DIR/additional_env.txt" "$WORKSPACE_SOURCE" "$PERSIST_PATHS_FILE" > "$SANDBOX_DIR/config.json"
         else
-          "$GITHUB_ACTION_PATH/generate-config" > "$SANDBOX_DIR/config.json"
+          "$GITHUB_ACTION_PATH/generate-config" "" "$WORKSPACE_SOURCE" "$PERSIST_PATHS_FILE" > "$SANDBOX_DIR/config.json"
         fi
 
         # Run the container with runsc
@@ -131,6 +193,9 @@ runs:
         if [ "$INPUTS_PERSIST_WORKSPACE_CHANGES" = "true" ]; then
           echo "::warning::Workspace changes will persist on the host filesystem"
           # Use overlay only for root filesystem, not for bind mounts (workspace)
+          OVERLAY_FLAGS="--overlay2=root:self"
+        elif [ -n "$INPUTS_PERSIST_PATHS" ]; then
+          # Host-side overlay handles workspace isolation; bind mounts pass through.
           OVERLAY_FLAGS="--overlay2=root:self"
         else
           # Use overlay for all mounts (including workspace) for full isolation
@@ -154,6 +219,9 @@ runs:
 
         # Clean up (always run, even if sandbox failed)
         cd /
+        if [ -n "$HOST_OVERLAY_MERGED" ]; then
+          sudo umount "$HOST_OVERLAY_MERGED" || true
+        fi
         sudo rm -rf "$SANDBOX_DIR"
 
         # Exit with the same code as the sandbox

@@ -54,6 +54,11 @@ Changes to the workspace inside the sandbox can be made to persist on the host
 by setting `persist-workspace-changes: 'true'`. This is unlikely to be safe, as
 following steps will need to treat the workspace as untrusted.
 
+Alternatively, `persist-paths` lists workspace-relative paths (one per line)
+whose changes persist on the host, while writes elsewhere are discarded. The
+listed paths must still be treated as untrusted by following steps. Entries
+that resolve outside the workspace (e.g. via symlinks) are rejected.
+
 > [!NOTE]
 > This action will detect and fail if the `actions/checkout` Action has
 > persisted authentication tokens in GITHUB_WORKSPACE (the default behavior).
@@ -79,6 +84,7 @@ repository is compromised.
 - `run` (required): Commands to run in the sandbox
 - `env` (optional): Additional environment variables to set in the sandbox (one per line, KEY=VALUE format)
 - `persist-workspace-changes` (optional, default: `false`): Allow changes to persist on the host
+- `persist-paths` (optional): Workspace-relative paths whose changes persist on the host (one per line)
 - `disable-network` (optional, default: `false`): Disable network access in the sandbox
 - `allow-checkout-credentials` (optional, default: `false`): Allow persisted checkout credentials
 - `rootfs-image` (optional): Docker image to use as the root filesystem

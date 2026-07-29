@@ -410,6 +410,170 @@ jobs:
           fi
           rm persist-modify-test.txt
 
+      - name: Test persist-paths persists only the listed directory
+        uses: ./
+        with:
+          persist-paths: |
+            dist
+          run: |
+            echo "Testing persist-paths (only dist/ should persist)"
+            mkdir -p dist
+            echo "build output" > dist/output.txt
+            mkdir -p dist/nested
+            echo "nested output" > dist/nested/file.txt
+            echo "should NOT persist" > outside-dist.txt
+
+      - name: Verify persist-paths behavior
+        run: |
+          if [ ! -f dist/output.txt ]; then
+            echo "ERROR: dist/output.txt did not persist!"
+            exit 1
+          fi
+          if ! grep -q "build output" dist/output.txt; then
+            echo "ERROR: dist/output.txt has wrong content"
+            cat dist/output.txt
+            exit 1
+          fi
+          echo "✓ dist/output.txt persisted as expected"
+          if [ ! -f dist/nested/file.txt ]; then
+            echo "ERROR: dist/nested/file.txt did not persist!"
+            exit 1
+          fi
+          echo "✓ dist/nested/file.txt persisted as expected"
+          if [ -f outside-dist.txt ]; then
+            echo "ERROR: outside-dist.txt leaked to host!"
+            cat outside-dist.txt
+            exit 1
+          fi
+          echo "✓ outside-dist.txt did not leak to host"
+          rm -rf dist
+
+      - name: Create file inside future persist-path on host
+        run: |
+          mkdir -p artifacts
+          echo "original on host" > artifacts/existing.txt
+
+      - name: Modify file inside persist-path
+        uses: ./
+        with:
+          persist-paths: |
+            artifacts
+          run: |
+            cat artifacts/existing.txt
+            echo "modified by sandbox" >> artifacts/existing.txt
+            echo "new in sandbox" > artifacts/new.txt
+
+      - name: Verify modifications inside persist-path persisted
+        run: |
+          if ! grep -q "modified by sandbox" artifacts/existing.txt; then
+            echo "ERROR: modification to artifacts/existing.txt did not persist"
+            cat artifacts/existing.txt
+            exit 1
+          fi
+          if [ ! -f artifacts/new.txt ]; then
+            echo "ERROR: new file in artifacts/ did not persist"
+            exit 1
+          fi
+          echo "✓ Modifications inside persist-path persisted as expected"
+          rm -rf artifacts
+
+      - name: Test persist-paths with multiple separate directories
+        uses: ./
+        with:
+          persist-paths: |
+            out-a
+            out-b
+          run: |
+            mkdir -p out-a out-b
+            echo "a" > out-a/file.txt
+            echo "b" > out-b/file.txt
+            echo "should NOT persist" > out-c.txt
+
+      - name: Verify multiple persist-paths persisted independently
+        run: |
+          if [ ! -f out-a/file.txt ] || ! grep -q "^a$" out-a/file.txt; then
+            echo "ERROR: out-a/file.txt missing or wrong content"
+            exit 1
+          fi
+          if [ ! -f out-b/file.txt ] || ! grep -q "^b$" out-b/file.txt; then
+            echo "ERROR: out-b/file.txt missing or wrong content"
+            exit 1
+          fi
+          if [ -f out-c.txt ]; then
+            echo "ERROR: out-c.txt leaked to host!"
+            exit 1
+          fi
+          echo "✓ Multiple persist-paths persisted independently"
+          rm -rf out-a out-b
+
+      - name: Test nested persist-path (only listed subtree persists)
+        uses: ./
+        with:
+          persist-paths: |
+            build/output
+          run: |
+            mkdir -p build/output build/intermediate
+            echo "persisted" > build/output/result.txt
+            echo "should NOT persist" > build/intermediate/cache.txt
+
+      - name: Verify nested persist-path behavior
+        run: |
+          if [ ! -f build/output/result.txt ]; then
+            echo "ERROR: build/output/result.txt did not persist"
+            exit 1
+          fi
+          if [ -f build/intermediate/cache.txt ]; then
+            echo "ERROR: build/intermediate/cache.txt leaked - sibling of persist-path was not discarded"
+            exit 1
+          fi
+          echo "✓ Nested persist-path persisted child only, sibling discarded"
+          rm -rf build
+
+      - name: Plant symlink pointing outside workspace
+        run: ln -s /etc escape-symlink
+
+      - name: persist-paths must reject symlinks escaping the workspace (should fail)
+        id: symlink-escape
+        uses: ./
+        continue-on-error: true
+        with:
+          persist-paths: |
+            escape-symlink
+          run: |
+            echo "should not run"
+
+      - name: Verify symlink escape was rejected
+        env:
+          SYMLINK_OUTCOME: ${{ steps.symlink-escape.outcome }}
+        run: |
+          if [ "$SYMLINK_OUTCOME" != "failure" ]; then
+            echo "ERROR: symlink escape should have been rejected!"
+            exit 1
+          fi
+          echo "✓ Symlink escape correctly rejected"
+          rm -f escape-symlink
+
+      - name: Test persist-paths conflict with persist-workspace-changes (should fail)
+        id: persist-paths-conflict
+        uses: ./
+        continue-on-error: true
+        with:
+          persist-workspace-changes: true
+          persist-paths: |
+            dist
+          run: |
+            echo "should not run"
+
+      - name: Verify persist-paths conflict was detected
+        env:
+          CONFLICT_OUTCOME: ${{ steps.persist-paths-conflict.outcome }}
+        run: |
+          if [ "$CONFLICT_OUTCOME" != "failure" ]; then
+            echo "ERROR: combining persist-paths and persist-workspace-changes should have failed!"
+            exit 1
+          fi
+          echo "✓ Conflict between persist-paths and persist-workspace-changes correctly rejected"
+
       - name: Test package installation in Ubuntu environment
         uses: ./
         with:

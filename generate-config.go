@@ -115,6 +115,16 @@ func main() {
 	if len(os.Args) > 1 {
 		additionalEnvFile = os.Args[1]
 	}
+	// Optional: workspace source path (defaults to GITHUB_WORKSPACE)
+	workspaceSource := workspace
+	if len(os.Args) > 2 && os.Args[2] != "" {
+		workspaceSource = os.Args[2]
+	}
+	// Optional: file listing workspace-relative paths to persist
+	var persistPathsFile string
+	if len(os.Args) > 3 {
+		persistPathsFile = os.Args[3]
+	}
 
 	// Get hostname from host system
 	hostname, err := os.Hostname()
@@ -152,7 +162,8 @@ func main() {
 	}
 
 	// Build mounts list
-	mounts := buildMountsList(workspace)
+	persistPaths := readPersistPaths(persistPathsFile)
+	mounts := buildMountsList(workspace, workspaceSource, persistPaths)
 
 	// Create the OCI config
 	config := OCIConfig{
@@ -254,12 +265,32 @@ func buildEnvList(additionalEnvFile string) []string {
 	return env
 }
 
-func buildMountsList(workspace string) []Mount {
+func readPersistPaths(file string) []string {
+	if file == "" {
+		return nil
+	}
+	content, err := os.ReadFile(file)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to read persist paths file %s: %v\n", file, err)
+		os.Exit(1)
+	}
+	var paths []string
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		paths = append(paths, line)
+	}
+	return paths
+}
+
+func buildMountsList(workspace, workspaceSource string, persistPaths []string) []Mount {
 	mounts := []Mount{
 		{
 			Destination: workspace,
 			Type:        "bind",
-			Source:      workspace,
+			Source:      workspaceSource,
 			Options:     []string{"rbind", "rw"},
 		},
 		{
@@ -310,6 +341,17 @@ func buildMountsList(workspace string) []Mount {
 				Options:     []string{"rbind", "ro"}, // Read-only mount
 			})
 		}
+	}
+
+	// Add persist-path mounts that bypass the host-side overlay.
+	for _, p := range persistPaths {
+		full := workspace + "/" + p
+		mounts = append(mounts, Mount{
+			Destination: full,
+			Type:        "bind",
+			Source:      full,
+			Options:     []string{"rbind", "rw"},
+		})
 	}
 
 	return mounts
